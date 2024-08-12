@@ -1,326 +1,143 @@
-Bien sûr ! Je vais vous guider étape par étape pour configurer un projet Spring Boot avec Gradle, intégrer Spring Integration, et configurer un système de requête/réponse TCP avec des sérialiseurs personnalisés. Voici comment procéder :
+Voici comment vous pouvez établir une communication TCP avec des messages XML en utilisant uniquement les sockets Java. Je vais vous montrer comment configurer un serveur et un client TCP qui échangent des messages XML.
 
-### 1. Créer un Nouveau Projet Spring Boot avec Gradle
+### 1. Créer le Serveur TCP
 
-1. **Créer un nouveau projet Spring Boot :**
-   - Si vous utilisez l'IDE IntelliJ ou Eclipse avec le support Spring, vous pouvez générer un projet Spring Boot directement à partir de l'IDE.
-   - Vous pouvez aussi utiliser [Spring Initializr](https://start.spring.io/) pour générer un projet avec les dépendances nécessaires.
-
-2. **Sélectionner les dépendances :**
-   - **Spring Boot DevTools** (optionnel pour le développement)
-   - **Spring Integration**
-   - **Spring Boot Starter Web** (optionnel, si vous avez besoin d'un serveur web)
-
-3. **Télécharger le projet** et l'extraire dans votre espace de travail.
-
-### 2. Configurer `build.gradle`
-
-Ouvrez le fichier `build.gradle` et ajoutez les dépendances nécessaires pour Spring Integration.
-
-```gradle
-plugins {
-    id 'org.springframework.boot' version '3.1.0' // Utilisez la version que vous préférez
-    id 'io.spring.dependency-management' version '1.1.0'
-    id 'java'
-}
-
-group = 'com.example'
-version = '0.0.1-SNAPSHOT'
-sourceCompatibility = '17' // Utilisez la version de Java que vous avez
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-integration'
-    implementation 'org.springframework.boot:spring-boot-starter-web' // Optionnel pour l'API web
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-}
-
-tasks.named('test') {
-    useJUnitPlatform()
-}
-```
-
-### 3. Configurer le Code de Base
-
-Créez une structure de package standard pour votre projet :
-
-```
-src
-└── main
-    └── java
-        └── com
-            └── example
-                └── tcpintegration
-                    ├── TcpServerConfig.java
-                    ├── TcpClientConfig.java
-                    └── TcpClientApplication.java
-```
-
-### 4. Implémenter le Serveur TCP
-
-#### Créez `TcpServerConfig.java`
+Le serveur va écouter sur un port spécifique et répondre à chaque message reçu.
 
 ```java
-package com.example.tcpintegration;
-
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.integration.annotation.ServiceActivator;
-import org.springframework.integration.channel.DirectChannel;
-import org.springframework.integration.ip.tcp.connection.TcpNetServerConnectionFactory;
-import org.springframework.integration.ip.tcp.serializer.ByteArrayLfSerializer;
-import org.springframework.integration.ip.tcp.TcpReceivingChannelAdapter;
-import org.springframework.integration.ip.tcp.TcpSendingMessageHandler;
-import org.springframework.messaging.MessageChannel;
-import org.springframework.messaging.MessageHandler;
-import org.w3c.dom.Element;
-import org.xml.sax.InputSource;
-
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.net.ServerSocket;
+import java.net.Socket;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import java.io.StringReader;
-
-@Configuration
-public class TcpServerConfig {
-
-    @Bean
-    public ByteArrayLfSerializer byteArrayLfSerializer() {
-        return new ByteArrayLfSerializer();
-    }
-
-    @Bean
-    public TcpNetServerConnectionFactory tcpServerConnectionFactory() {
-        TcpNetServerConnectionFactory factory = new TcpNetServerConnectionFactory(1234);
-        factory.setSerializer(byteArrayLfSerializer());
-        factory.setDeserializer(byteArrayLfSerializer());
-        return factory;
-    }
-
-    @Bean
-    public MessageChannel tcpRequestChannel() {
-        return new DirectChannel();
-    }
-
-    @Bean
-    public MessageChannel tcpResponseChannel() {
-        return new DirectChannel();
-    }
-
-    @Bean
-    public TcpReceivingChannelAdapter tcpReceivingChannelAdapter() {
-        TcpReceivingChannelAdapter adapter = new TcpReceivingChannelAdapter();
-        adapter.setConnectionFactory(tcpServerConnectionFactory());
-        adapter.setOutputChannel(tcpRequestChannel());
-        return adapter;
-    }
-
-    @Bean
-    @ServiceActivator(inputChannel = "tcpRequestChannel")
-    public MessageHandler tcpRequestHandler() {
-        return message -> {
-            try {
-                String payload = (String) message.getPayload();
-                DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-                DocumentBuilder builder = factory.newDocumentBuilder();
-                Element requestElement = builder.parse(new InputSource(new StringReader(payload))).getDocumentElement();
-                
-                // Traitement de la requête XML et construction de la réponse
-                Element responseElement = processRequest(requestElement);
-                
-                // Envoi de la réponse XML
-                String responseXml = convertElementToString(responseElement);
-                tcpResponseChannel().send(new GenericMessage<>(responseXml, message.getHeaders()));
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        };
-    }
-
-    @Bean
-    @ServiceActivator(inputChannel = "tcpResponseChannel")
-    public TcpSendingMessageHandler tcpResponseHandler() {
-        TcpSendingMessageHandler handler = new TcpSendingMessageHandler();
-        handler.setConnectionFactory(tcpServerConnectionFactory());
-        return handler;
-    }
-
-    private Element processRequest(Element requestElement) {
-        // Implémentation de la logique de traitement de la requête XML
-        // et création de la réponse XML
-        // ...
-        return requestElement; // Modifier cette ligne pour retourner une réponse appropriée
-    }
-
-    private String convertElementToString(Element element) {
-        // Conversion d'un Element XML en chaîne de caractères
-        // ...
-        return "<response>example</response>"; // Modifier cette ligne pour la conversion appropriée
-    }
-}
-```
-
-### 5. Implémenter le Client TCP
-
-#### Créez `TcpClientConfig.java`
-
-```java
-package com.example.tcpintegration;
-
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.integration.annotation.Gateway;
-import org.springframework.integration.annotation.MessagingGateway;
-import org.springframework.integration.annotation.ServiceActivator;
-import org.springframework.integration.channel.DirectChannel;
-import org.springframework.integration.ip.tcp.connection.TcpNetClientConnectionFactory;
-import org.springframework.integration.ip.tcp.serializer.ByteArrayLfSerializer;
-import org.springframework.integration.ip.tcp.TcpOutboundGateway;
-import org.springframework.messaging.MessageChannel;
-import org.w3c.dom.Element;
-import org.xml.sax.InputSource;
-
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import java.io.StringReader;
-
-@Configuration
-public class TcpClientConfig {
-
-    @Bean
-    public TcpNetClientConnectionFactory tcpClientConnectionFactory() {
-        TcpNetClientConnectionFactory factory = new TcpNetClientConnectionFactory("localhost", 1234);
-        factory.setSerializer(new ByteArrayLfSerializer());
-        factory.setDeserializer(new ByteArrayLfSerializer());
-        return factory;
-    }
-
-    @Bean
-    public MessageChannel tcpOutboundChannel() {
-        return new DirectChannel();
-    }
-
-    @Bean
-    @ServiceActivator(inputChannel = "tcpOutboundChannel")
-    public TcpOutboundGateway tcpOutboundGateway() {
-        TcpOutboundGateway gateway = new TcpOutboundGateway();
-        gateway.setConnectionFactory(tcpClientConnectionFactory());
-        gateway.setOutputChannel(tcpResponseChannel());
-        return gateway;
-    }
-
-    @Bean
-    public MessageChannel tcpResponseChannel() {
-        return new DirectChannel();
-    }
-
-    @MessagingGateway(defaultRequestChannel = "tcpOutboundChannel")
-    public interface TcpClientGateway {
-        String send(String request);
-    }
-
-    @Bean
-    @ServiceActivator(inputChannel = "tcpResponseChannel")
-    public MessageHandler tcpResponseHandler() {
-        return message -> {
-            try {
-                String payload = (String) message.getPayload();
-                DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-                DocumentBuilder builder = factory.newDocumentBuilder();
-                Element responseElement = builder.parse(new InputSource(new StringReader(payload))).getDocumentElement();
-                
-                // Traitement de la réponse XML
-                processResponse(responseElement);
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        };
-    }
-
-    private void processResponse(Element responseElement) {
-        // Implémentation de la logique de traitement de la réponse XML
-        // ...
-    }
-}
-```
-
-### 6. Lancer l'Application
-
-#### Créez `TcpClientApplication.java`
-
-```java
-package com.example.tcpintegration;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.CommandLineRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-
-@SpringBootApplication
-public class TcpClientApplication implements CommandLineRunner {
-
-    @Autowired
-    private TcpClientConfig.TcpClientGateway tcpClientGateway;
+public class TcpXmlServer {
 
     public static void main(String[] args) {
-        SpringApplication.run(TcpClientApplication.class, args);
+        int port = 1234; // Port d'écoute du serveur
+
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
+            System.out.println("Serveur en écoute sur le port " + port);
+
+            while (true) {
+                try (Socket clientSocket = serverSocket.accept()) {
+                    System.out.println("Connexion acceptée de " + clientSocket.getInetAddress());
+
+                    // Lire le message XML du client
+                    BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                    StringBuilder xmlBuilder = new StringBuilder();
+                    String line;
+                    while ((line = in.readLine()) != null) {
+                        xmlBuilder.append(line);
+                    }
+
+                    String requestXml = xmlBuilder.toString();
+                    System.out.println("Reçu du client : " + requestXml);
+
+                    // Traiter le message XML
+                    DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+                    DocumentBuilder builder = factory.newDocumentBuilder();
+                    Document requestDocument = builder.parse(new InputSource(new StringReader(requestXml)));
+                    Element requestElement = requestDocument.getDocumentElement();
+
+                    // Construire la réponse XML
+                    Document responseDocument = builder.newDocument();
+                    Element responseElement = responseDocument.createElement("Response");
+                    responseElement.appendChild(responseDocument.createTextNode("Bonjour, Client !"));
+                    responseDocument.appendChild(responseElement);
+
+                    // Envoyer la réponse au client
+                    String responseXml = convertElementToString(responseElement);
+                    PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+                    out.println(responseXml);
+                    System.out.println("Envoyé au client : " + responseXml);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
-    @Override
-    public void run(String... args) throws Exception {
-        // Construction de la requête XML
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        DocumentBuilder builder = factory.newDocumentBuilder();
-        Document document = builder.newDocument();
-        Element requestElement = document.createElement("Request");
-        requestElement.appendChild(document.createTextNode("Hello, Server!"));
-        document.appendChild(requestElement);
-
-        // Conversion de l'élément XML en chaîne de caractères
-        String requestXml = convertElementToString(requestElement);
-
-        // Envoi de la requête et réception de la réponse
-        String responseXml = tcpClientGateway.send(requestXml);
-        
-        // Traitement de la réponse
-        System.out.println("Réponse reçue: " + responseXml);
-    }
-
-    private String convertElementToString(Element element) {
-        // Conversion d'un Element XML en chaîne de caractères
-        // ...
-        return "<response>example
-
-</response>"; // Modifier cette ligne pour la conversion appropriée
+    private static String convertElementToString(Element element) {
+        // Implémentation de la conversion de l'élément XML en chaîne de caractères
+        // Vous pouvez utiliser un Transformer pour cela
+        return "<Response>example</Response>"; // Modifier cette ligne pour la conversion appropriée
     }
 }
 ```
 
-### 7. Exécuter le Projet
+### 2. Créer le Client TCP
 
-1. **Lancer l'application :**
-   - Vous pouvez exécuter le projet via votre IDE en démarrant la classe `TcpClientApplication`.
-   - Vous pouvez également utiliser la ligne de commande :
-     ```bash
-     ./gradlew bootRun
-     ```
-   - L'application démarrera un serveur TCP sur le port 1234 et pourra envoyer/recevoir des messages XML.
+Le client va se connecter au serveur et envoyer une requête XML, puis recevoir et afficher la réponse.
 
-2. **Tester le flux :**
-   - En exécutant l'application, le client enverra une requête XML au serveur et affichera la réponse reçue dans la console.
+```java
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.net.Socket;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 
-### 8. Résumé
+public class TcpXmlClient {
 
-- Vous avez configuré un projet Spring Boot avec Gradle.
-- Vous avez mis en place un serveur et un client TCP en utilisant Spring Integration.
-- Vous avez configuré les sérialiseurs au niveau du flux Spring Integration.
-- Le projet est prêt à être exécuté et testé.
+    public static void main(String[] args) {
+        String hostname = "localhost";
+        int port = 1234;
 
-Si vous avez des questions supplémentaires ou si vous avez besoin de modifications supplémentaires, n'hésitez pas à demander !
+        try (Socket socket = new Socket(hostname, port)) {
+            // Construire la requête XML
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document document = builder.newDocument();
+            Element requestElement = document.createElement("Request");
+            requestElement.appendChild(document.createTextNode("Bonjour, Serveur !"));
+            document.appendChild(requestElement);
+
+            // Envoyer la requête au serveur
+            String requestXml = convertElementToString(requestElement);
+            PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+            out.println(requestXml);
+            System.out.println("Envoyé au serveur : " + requestXml);
+
+            // Lire la réponse du serveur
+            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            StringBuilder xmlBuilder = new StringBuilder();
+            String line;
+            while ((line = in.readLine()) != null) {
+                xmlBuilder.append(line);
+            }
+
+            String responseXml = xmlBuilder.toString();
+            System.out.println("Réponse reçue du serveur : " + responseXml);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static String convertElementToString(Element element) {
+        // Implémentation de la conversion de l'élément XML en chaîne de caractères
+        // Vous pouvez utiliser un Transformer pour cela
+        return "<Request>example</Request>"; // Modifier cette ligne pour la conversion appropriée
+    }
+}
+```
+
+### 3. Résumé des Étapes
+
+- **Serveur TCP :** Écoute sur un port, reçoit les messages XML, les traite, et renvoie une réponse XML.
+- **Client TCP :** Envoie un message XML au serveur et affiche la réponse reçue.
+
+### 4. Lancer le Serveur et le Client
+
+1. **Lancer le Serveur :** Exécutez `TcpXmlServer` en premier pour mettre le serveur en écoute.
+2. **Lancer le Client :** Exécutez `TcpXmlClient` pour envoyer une requête au serveur et recevoir la réponse.
+
+Avec cette configuration, vous avez une communication TCP en utilisant seulement les sockets Java, sans aucune dépendance externe.
